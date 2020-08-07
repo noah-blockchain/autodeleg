@@ -121,6 +121,7 @@ func Delegate(c *gin.Context) {
 				}
 			}
 		}
+		fmt.Println("Delegation success")
 	}()
 	c.JSON(http.StatusOK, "Delegation is started")
 }

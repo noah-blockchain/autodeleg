@@ -7,7 +7,7 @@ import (
 	"net/http"
 )
 
-func HttpPost(url string, payload interface{}) ([]byte, error) {
+func HttpPost(url string, payload map[string]string) ([]byte, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
