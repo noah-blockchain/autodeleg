@@ -6,13 +6,13 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "github.com/jinzhu/gorm/dialects/postgres"
 	"github.com/noah-blockchain/autodeleg/internal/env"
-	noah_node_go_api "github.com/noah-blockchain/noah-node-go-api"
+	"github.com/noah-blockchain/autodeleg/internal/gate"
 	"net/http"
 )
 
 // Run API
-func Run(nodeApi *noah_node_go_api.NoahNodeApi) {
-	router := SetupRouter(nodeApi)
+func Run(gateService *gate.NoahGate) {
+	router := SetupRouter(gateService)
 	aDelegLink := fmt.Sprintf("%s:%s", env.GetEnv(env.AdelegApiHostEnv, ""), env.GetEnv(env.AdelegApiPortEnv, ""))
 	err := router.Run(aDelegLink)
 	if err != nil {
@@ -21,16 +21,16 @@ func Run(nodeApi *noah_node_go_api.NoahNodeApi) {
 }
 
 //Setup router
-func SetupRouter(nodeApi *noah_node_go_api.NoahNodeApi) *gin.Engine {
+func SetupRouter(gateService *gate.NoahGate) *gin.Engine {
 	router := gin.Default()
 	if !env.GetEnvAsBool(env.DebugModeEnv, true) {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	router.Use(cors.Default())         // CORS
-	router.Use(gin.ErrorLogger())      // print all errors
-	router.Use(gin.Recovery())         // returns 500 on any code panics
-	router.Use(apiMiddleware(nodeApi)) // init global context
+	router.Use(cors.Default())             // CORS
+	router.Use(gin.ErrorLogger())          // print all errors
+	router.Use(gin.Recovery())             // returns 500 on any code panics
+	router.Use(apiMiddleware(gateService)) // init global context
 
 	router.GET("/", Index)
 
@@ -46,9 +46,9 @@ func SetupRouter(nodeApi *noah_node_go_api.NoahNodeApi) *gin.Engine {
 }
 
 //Add necessary services to global context
-func apiMiddleware(nodeApi *noah_node_go_api.NoahNodeApi) gin.HandlerFunc {
+func apiMiddleware(gateService *gate.NoahGate) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Set("gate", nodeApi)
+		c.Set("gate", gateService)
 		c.Next()
 	}
 }

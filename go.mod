@@ -14,5 +14,6 @@ require (
 	github.com/nats-io/stan.go v0.5.2
 	github.com/noah-blockchain/noah-go-node v0.2.5
 	github.com/noah-blockchain/noah-node-go-api v0.1.1
+	github.com/sirupsen/logrus v1.4.2
 	google.golang.org/genproto v0.0.0-20190425155659-357c62f0e4bb // indirect
 )

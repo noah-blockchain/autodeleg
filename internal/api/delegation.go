@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/noah-blockchain/autodeleg/internal/env"
+	"github.com/noah-blockchain/autodeleg/internal/gate"
 	"github.com/noah-blockchain/autodeleg/internal/helpers"
 	"github.com/noah-blockchain/noah-go-node/core/transaction"
-	noah_node_go_api "github.com/noah-blockchain/noah-node-go-api"
+	"github.com/sirupsen/logrus"
 	"net/http"
 	"strconv"
 	"time"
@@ -21,14 +22,14 @@ type Delegations struct {
 type inner struct {
 	Hash string `json:"hash"`
 }
-type transactionResponse struct {
+type TxDelegateResponse struct {
 	Data inner `json:"data"`
 }
 
 func Delegate(c *gin.Context) {
 	var err error
 	var url = fmt.Sprintf("%s/api/v1/transaction/push", env.GetEnv(env.NoahGateApi, ""))
-	gate, ok := c.MustGet("gate").(*noah_node_go_api.NoahNodeApi)
+	gate, ok := c.MustGet("gate").(*gate.NoahGate)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": gin.H{
@@ -53,77 +54,93 @@ func Delegate(c *gin.Context) {
 			tx := dlg.Txs[txCount]
 			decodeString, err := hex.DecodeString(tx)
 			if err != nil {
-				fmt.Println("ERROR: ", err.Error())
+				gate.Logger.WithFields(logrus.Fields{
+					"transaction": tx,
+				}).Errorf("Transaction decode error: ", err)
 				return
 			}
 			decodedTx, err := transaction.TxDecoder.DecodeFromBytes(decodeString)
 			if err != nil {
-				fmt.Println("ERROR: ", err.Error())
+				gate.Logger.WithFields(logrus.Fields{
+					"transaction": tx,
+				}).Errorf("Transaction decode error: ", err)
 				return
 			}
 			sender, err := decodedTx.Sender()
 			if err != nil {
-				fmt.Println("ERROR: ", err.Error())
+				gate.Logger.WithFields(logrus.Fields{
+					"transaction": tx,
+				}).Errorf("Transaction decode error: ", err)
 				return
 			}
-			response, err := gate.GetAddress(sender.String())
-			if err != nil {
-				fmt.Println("ERROR: ", err.Error())
-				return
-			}
-			if response.Error != nil {
-				fmt.Println("ERROR: ", response.Error)
-				return
-			}
-
+			address := sender.String()
 			nonce := decodedTx.Nonce
-			qNoahBalance := helpers.StringToBigInt(response.Result.Balance["NOAH"])
-			accNonce, err := strconv.ParseUint(response.Result.TransactionCount, 10, 64)
+			qNoahBalance, err := gate.GetBalance(address)
 			if err != nil {
-				fmt.Println("ERROR: ", err.Error())
 				return
 			}
-			if nonce-1 != accNonce {
-				fmt.Println("ERROR: ", err.Error())
+			resultNonce, err := gate.GetNonce(address)
+			if err != nil {
 				return
 			}
-			txData, ok := decodedTx.GetDecodedData().(*transaction.DelegateData)
+			addrNonce, err := strconv.ParseUint(*resultNonce, 10, 64)
+			if err != nil {
+				gate.Logger.WithFields(logrus.Fields{
+					"address": address,
+				}).Warn(err)
+				return
+			}
+			if nonce-1 != addrNonce {
+				gate.Logger.WithFields(logrus.Fields{
+					"expected": nonce - 1,
+					"got":      addrNonce,
+				}).Info("nonce differ stop delegation")
+				return
+			}
+			decodedTxData, ok := decodedTx.GetDecodedData().(*transaction.DelegateData)
 			if !ok {
-				fmt.Println("ERROR type casting ")
+				gate.Logger.WithFields(logrus.Fields{
+					"transaction": tx,
+				}).Errorf("Transaction decode error: ", err)
 				return
 			}
-			amount := txData.Value
+			amount := decodedTxData.Value
 			cmp := amount.Cmp(qNoahBalance)
 			if cmp == -1 || cmp == 0 {
 				var payload = make(map[string]string)
 				payload["transaction"] = tx
-				response, err := helpers.HttpPost(url, payload)
+				delResp, err := helpers.HttpPost(url, payload)
 				if err != nil {
-					fmt.Println("ERROR: ", err.Error())
+					gate.Logger.WithFields(logrus.Fields{}).Errorf("Transaction delegate error: ", err)
 					return
 				}
-				var dat map[string]interface{}
-				if err = json.Unmarshal(response, &dat); err != nil {
-					fmt.Println("ERROR: ", err)
+				var body map[string]interface{}
+				if err = json.Unmarshal(delResp, &body); err != nil {
+					gate.Logger.Error(err)
+					return
 				}
-				if _, exists := dat["data"]; exists {
-					var txresponse transactionResponse
-					err = json.Unmarshal(response, &txresponse)
+				if _, exists := body["data"]; exists {
+					var resp TxDelegateResponse
+					err = json.Unmarshal(delResp, &resp)
 					if err != nil {
-						fmt.Println("ERROR: ", err)
+						gate.Logger.Error(err)
+						return
 					}
-					fmt.Println("TX HASH: ", txresponse.Data.Hash)
+					gate.Logger.WithFields(logrus.Fields{
+						"hash": resp.Data.Hash,
+					}).Info("Tx success")
 					txCount++
 					// SLEEP!
 					time.Sleep(time.Second * 10) // пауза 10сек, Nonce чтобы в блокчейна +1
 				} else {
-					fmt.Println("ERROR: ", dat)
+					gate.Logger.WithFields(logrus.Fields{
+						"error": body,
+					}).Warn("GATE ERROR")
 				}
 			}
 		}
-		fmt.Println("Delegation success")
 	}()
-	c.JSON(http.StatusOK, "Delegation is started")
+	c.JSON(http.StatusOK, gin.H{"message": "Delegation started!"})
 }
 
 func Index(c *gin.Context) {

@@ -1,18 +1,33 @@
 package main
 
 import (
-	"fmt"
 	_ "github.com/google/uuid"
 	_ "github.com/lib/pq"
 	_ "github.com/nats-io/stan.go"
 	"github.com/noah-blockchain/autodeleg/internal/api"
 	_ "github.com/noah-blockchain/autodeleg/internal/api"
 	"github.com/noah-blockchain/autodeleg/internal/env"
-	noah_node_go_api "github.com/noah-blockchain/noah-node-go-api"
+	"github.com/noah-blockchain/autodeleg/internal/gate"
+	"github.com/sirupsen/logrus"
+	"os"
 )
 
 func main() {
-	nodeApi := noah_node_go_api.New(env.GetEnv(env.NoahApiNodeEnv, ""))
-	fmt.Println("Starting auto-delegator service with port")
-	api.Run(nodeApi)
+	//Init Logger
+	logger := logrus.New()
+	logger.SetFormatter(&logrus.JSONFormatter{})
+	logger.SetOutput(os.Stdout)
+	logger.SetReportCaller(true)
+	if env.GetEnvAsBool(env.DebugModeEnv, true) {
+		logger.SetFormatter(&logrus.TextFormatter{
+			DisableColors: false,
+			FullTimestamp: true,
+		})
+	} else {
+		logger.SetFormatter(&logrus.JSONFormatter{})
+		logger.SetLevel(logrus.WarnLevel)
+	}
+
+	gateService := gate.New(logger)
+	api.Run(gateService)
 }
